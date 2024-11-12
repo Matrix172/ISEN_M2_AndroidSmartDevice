@@ -5,11 +5,15 @@
     <!-- Permissions Bluetooth -->
     <uses-permission android:name="android.permission.BLUETOOTH"/>
     <uses-permission android:name="android.permission.BLUETOOTH_ADMIN"/>
-    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION"/>
+    <uses-permission android:name="android.permission.BLUETOOTH_ADVERTISE"/>
+    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT"/> <!-- Requis pour Android 12+ -->
+    <uses-permission android:name="android.permission.BLUETOOTH_SCAN"/> <!-- Requis pour Android 12+ -->
+    <!--<uses-permission android:name="android.permission.BLUETOOTH_PRIVILEGED" android:protectionLevel="signature"/> <!- Permet de gérer le Bluetooth sur les appareils privés -->
 
-    <!-- Permissions spécifiques à Android 12 et versions supérieures -->
-    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT"/>
-    <uses-permission android:name="android.permission.BLUETOOTH_SCAN"/>
+
+    <uses-feature android:name="android.hardware.bluetooth" android:required="true"/>
+    <uses-feature android:name="android.hardware.bluetooth_le" android:required="true"/>
+
 
     <application
         android:allowBackup="true"
