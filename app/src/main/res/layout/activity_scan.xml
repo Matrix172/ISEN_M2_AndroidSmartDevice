@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:gravity="center"
+    android:orientation="vertical"
+    android:padding="16dp">
+
+    <!-- Titre de la page -->
+    <TextView
+        android:id="@+id/scan_title"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginBottom="24dp"
+        android:fontFamily="sans-serif-medium"
+        android:text="Scan Page"
+        android:textSize="24sp" />
+
+    <!-- Image de scanner (ou icône de caméra) -->
+    <ImageView
+        android:id="@+id/scan_image"
+        android:layout_width="200dp"
+        android:layout_height="200dp"
+        android:layout_marginBottom="24dp"
+        android:src="@drawable/logo_ble" />
+
+    <!-- Un bouton pour lancer le scan -->
+    <Button
+        android:id="@+id/start_scan_button"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:onClick="startScan"
+        android:text="Commencer le Scan" /> <!-- Appelle une méthode startScan dans l'activité -->
+
+</LinearLayout>
