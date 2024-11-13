@@ -1,11 +1,19 @@
 package fr.isen.dejeantedimario.androidsmartdevice
 
+import android.Manifest
+import android.bluetooth.BluetoothAdapter
+import android.bluetooth.BluetoothManager
+import android.bluetooth.le.BluetoothLeScanner
+import android.content.Context
+import android.content.Intent
+import android.content.pm.PackageManager
+import android.os.Build
 import android.os.Bundle
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
-import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.annotation.RequiresApi
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -14,7 +22,6 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
@@ -24,61 +31,151 @@ import fr.isen.dejeantedimario.androidsmartdevice.ui.theme.AndroidSmartDeviceThe
 
 class ScanActivity : ComponentActivity() {
 
-    // Lanceur pour demander l'activation du Bluetooth
-    private val enableBluetoothLauncher =
+    // Bluetooth Adapter
+    private val bluetoothAdapter: BluetoothAdapter? by lazy(LazyThreadSafetyMode.NONE) {
+        val bluetoothManager = getSystemService(Context.BLUETOOTH_SERVICE) as BluetoothManager
+        bluetoothManager.adapter
+    }
+
+    private val bluetoothEnableResult =
         registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
             if (result.resultCode == RESULT_OK) {
-                // Bluetooth activé
-                Toast.makeText(this, "Bluetooth activé", Toast.LENGTH_SHORT).show()
+                showToast("Bluetooth activé.")
+                // Vous pouvez maintenant démarrer le scan BLE ici si nécessaire
+                scanLeDevice(true)
             } else {
-                // Bluetooth non activé ou l'utilisateur a refusé
-                Toast.makeText(this, "Activation Bluetooth refusée", Toast.LENGTH_SHORT).show()
+                showToast("Activation du Bluetooth refusée.")
             }
         }
 
-    // Lanceur pour demander les permissions Bluetooth
-    private val requestBluetoothPermissionsLauncher =
+    // Demander les permissions
+    private val requestPermissionLauncher =
         registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { permissions ->
-            val allGranted = permissions.entries.all { it.value }
-            if (allGranted) {
-                BluetoothUtils.enableBluetooth(this, enableBluetoothLauncher)
+            if (permissions.entries.all { it.value }) {
+                scanLeDevice(true)
             } else {
-                Toast.makeText(this, "Permissions Bluetooth refusées", Toast.LENGTH_SHORT).show()
+                showToast("Permissions nécessaires non accordées.")
             }
         }
 
+    @RequiresApi(Build.VERSION_CODES.S)
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        enableEdgeToEdge()
         setContent {
             AndroidSmartDeviceTheme {
                 ScanScreen(
-                    onStartScan = {
-                        // Appel de `startScan` avec les bons paramètres
-                        BluetoothUtils.startScan(
-                            this,
-                            this,
-                            requestBluetoothPermissionsLauncher,
-                            enableBluetoothLauncher
-                        )
-                    }
+                    onStartScan = { initScanBLE() }//scanLeDevice(true) }
                 )
             }
         }
+        //initScanBLE()
+    }
+
+    // Afficher un message Toast
+    private fun showToast(message: String) {
+        Toast.makeText(this, message, Toast.LENGTH_SHORT).show()
+    }
+
+    private fun hasBLEMessageError(): String {
+        if (bluetoothAdapter != null) {
+            if (bluetoothAdapter!!.isEnabled) {
+                return ""
+            } else {
+                return "Bluetooth n'est pas activé."
+            }
+        }
+        return "Pas de Bluetooth disponible."
+    }
+
+    private fun initScanBLE() {
+        if (bluetoothAdapter?.isEnabled == true) {
+            scanLeDeviceWithPermission()
+        } else {
+            getAllPermissionsForBLE()
+            //activer le bluetooth
+            scanLeDeviceWithPermission()
+            //showToast("Bluetooth non activé.")
+        }
+    }
+
+    private fun scanLeDeviceWithPermission() {
+        if (allPermissionsGranted()) {
+            scanLeDevice(true)
+        } else {
+            requestPermissionLauncher.launch(getAllPermissionsForBLE())
+        }
+    }
+
+    private fun allPermissionsGranted(): Boolean {
+        val permissions = getAllPermissionsForBLE()
+        return permissions.all { permission ->
+            ActivityCompat.checkSelfPermission(this, permission) == PackageManager.PERMISSION_GRANTED
+        }
+    }
+
+    private fun enableBluetooth() {
+        if (bluetoothAdapter != null) {
+            if (!bluetoothAdapter!!.isEnabled) {
+                // Demander à l'utilisateur d'activer le Bluetooth
+                val enableBtIntent = Intent(BluetoothAdapter.ACTION_REQUEST_ENABLE)
+                bluetoothEnableResult.launch(enableBtIntent)
+            } else {
+                showToast("Bluetooth déjà activé.")
+            }
+        } else {
+            showToast("Bluetooth n'est pas disponible sur cet appareil.")
+        }
+    }
+
+    private fun scanLeDevice(scanning: Boolean) {
+        // Si le Bluetooth est activé et les permissions accordées, commence le scan
+        val bluetoothLeScanner: BluetoothLeScanner? = bluetoothAdapter?.bluetoothLeScanner
+
+        if (bluetoothAdapter?.isEnabled == false) {
+            //turn on bluetooth
+            enableBluetooth()
+        }
+
+        if (scanning) {
+            //bluetoothLeScanner?.startScan()
+            showToast("Scan BLE démarré.")
+        } else {
+            //bluetoothLeScanner?.stopScan()
+            showToast("Scan BLE arrêté.")
+        }
+    }
+
+    private fun getAllPermissionsForBLE(): Array<String> {
+        var allPermissions = arrayOf(
+            Manifest.permission.ACCESS_COARSE_LOCATION,
+            Manifest.permission.ACCESS_FINE_LOCATION,
+            Manifest.permission.BLUETOOTH_ADMIN
+        )
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            allPermissions = allPermissions.plus(
+                arrayOf(
+                    Manifest.permission.BLUETOOTH_CONNECT,
+                    Manifest.permission.BLUETOOTH_SCAN,
+                    Manifest.permission.BLUETOOTH_ADMIN
+                )
+            )
+        } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            allPermissions = allPermissions.plus(
+                Manifest.permission.ACCESS_BACKGROUND_LOCATION
+            )
+        }
+        return allPermissions
     }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ScanScreen(onStartScan: () -> Unit) {
-    val context = LocalContext.current
     var isScanning by remember { mutableStateOf(false) }
 
     Column(modifier = Modifier.fillMaxSize()) {
         TopAppBar(
-            title = {
-                Text(text = "My Bluetooth")
-            },
+            title = { Text(text = "My Bluetooth") },
             modifier = Modifier.fillMaxWidth(),
             colors = TopAppBarDefaults.mediumTopAppBarColors(containerColor = Color(0xFF6200EE))
         )
@@ -90,11 +187,7 @@ fun ScanScreen(onStartScan: () -> Unit) {
             verticalArrangement = Arrangement.Top,
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            Text(
-                text = "Scan",
-                fontSize = 28.sp,
-                modifier = Modifier.padding(bottom = 8.dp)
-            )
+            Text(text = "Scan", fontSize = 28.sp, modifier = Modifier.padding(bottom = 8.dp))
 
             Spacer(modifier = Modifier.height(16.dp))
 
@@ -102,19 +195,17 @@ fun ScanScreen(onStartScan: () -> Unit) {
                 horizontalArrangement = Arrangement.spacedBy(16.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                // Image pour démarrer le scan
                 Image(
                     painter = painterResource(id = R.drawable.start_scan),
                     contentDescription = "Start SCAN",
                     modifier = Modifier
                         .size(120.dp)
                         .clickable {
-                            onStartScan()  // Utilisation de la lambda pour démarrer le scan
+                            onStartScan()
                             isScanning = true
                         }
                 )
 
-                // Image pour arrêter le scan
                 Image(
                     painter = painterResource(id = R.drawable.stop_scan),
                     contentDescription = "Stop SCAN",
