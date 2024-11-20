@@ -46,7 +46,7 @@ fun HomeScreen() {
                 Text(text = "My Bluetooth")
             },
             modifier = Modifier.fillMaxWidth(),
-            colors = TopAppBarDefaults.mediumTopAppBarColors(containerColor = Color(0xFF6200EE))
+            colors = TopAppBarDefaults.mediumTopAppBarColors(containerColor = Color(0xFF3F51B5))
         )
 
         // Contenu principal
