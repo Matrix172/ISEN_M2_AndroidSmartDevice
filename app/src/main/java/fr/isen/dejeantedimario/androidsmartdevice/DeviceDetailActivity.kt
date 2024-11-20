@@ -35,8 +35,12 @@ class DeviceDetailActivity : ComponentActivity() {
     private var ledCharacteristic: BluetoothGattCharacteristic? = null
     private var isConnected by mutableStateOf(false)
     private var ledStates = mutableStateListOf(false, false, false) // États pour les 3 LEDs
-
     private var servicesDiscovered by mutableStateOf(false)
+
+    // Utilisation de mutableStateOf pour les variables des clics
+    private var nbclicbouton1 by mutableStateOf(0)
+    private var nbclicbouton2 by mutableStateOf(0)
+    private var nbclictotal by mutableStateOf(0)
 
     @RequiresApi(Build.VERSION_CODES.S)
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -59,7 +63,11 @@ class DeviceDetailActivity : ComponentActivity() {
                 onConnect = { connectToDevice(device) },
                 onDisconnect = { disconnectDevice() },
                 ledStates = ledStates,
-                writeToLEDCharacteristic = { state -> writeToLEDCharacteristic(state) } // Passer la fonction ici
+                writeToLEDCharacteristic = { state -> writeToLEDCharacteristic(state) }, // Passer la fonction ici
+                nbclicbouton1 = nbclicbouton1,
+                nbclicbouton2 = nbclicbouton2,
+                nbclictotal = nbclictotal,
+                //onClicBouton = { numeroDeBouton -> clicbouton(numeroDeBouton) } // Passer la fonction de clics
             )
         }
     }
@@ -80,7 +88,6 @@ class DeviceDetailActivity : ComponentActivity() {
 
             override fun onServicesDiscovered(gatt: BluetoothGatt, status: Int) {
                 if (status == BluetoothGatt.GATT_SUCCESS) {
-                    // Rechercher une caractéristique disponible
                     ledCharacteristic = gatt.services.flatMap { it.characteristics }
                         .firstOrNull() // Prend la première caractéristique disponible
                     Log.d("BLE", "Services discovered: ${gatt.services.map { it.uuid }}")
@@ -89,14 +96,7 @@ class DeviceDetailActivity : ComponentActivity() {
                         Log.d("LedActivity", "Service UUID : ${service.uuid}")
                         for (characteristic in service.characteristics) {
                             Log.d("LedActivity", "Caractéristique UUID : ${characteristic.uuid}")
-                            Log.d(
-                                "LedActivity",
-                                "Propriétés : ${characteristic.properties}"
-                            )
-                            // Vérifier si la caractéristique est écrivable
-                            val writeType = characteristic.properties and
-                                    (BluetoothGattCharacteristic.PROPERTY_WRITE or BluetoothGattCharacteristic.PROPERTY_WRITE_NO_RESPONSE)
-                            if (writeType > 0) {
+                            if (characteristic.properties and (BluetoothGattCharacteristic.PROPERTY_WRITE or BluetoothGattCharacteristic.PROPERTY_WRITE_NO_RESPONSE) > 0) {
                                 ledCharacteristic = characteristic
                                 runOnUiThread {
                                     servicesDiscovered = true
@@ -108,9 +108,7 @@ class DeviceDetailActivity : ComponentActivity() {
                                 break
                             }
                         }
-                        if (servicesDiscovered) {
-                            break
-                        }
+                        if (servicesDiscovered) break
                     }
 
                     if (!servicesDiscovered) {
@@ -119,17 +117,12 @@ class DeviceDetailActivity : ComponentActivity() {
                             Toast.makeText(this@DeviceDetailActivity, "Aucune caractéristique écrivable trouvée", Toast.LENGTH_SHORT).show()
                         }
                     }
-
                 } else {
                     Log.e("BLE", "Service discovery failed with status $status")
                 }
             }
 
-            override fun onCharacteristicWrite(
-                gatt: BluetoothGatt,
-                characteristic: BluetoothGattCharacteristic,
-                status: Int
-            ) {
+            override fun onCharacteristicWrite(gatt: BluetoothGatt, characteristic: BluetoothGattCharacteristic, status: Int) {
                 if (status == BluetoothGatt.GATT_SUCCESS) {
                     Log.d("BLELED", "Characteristic written successfully: ${characteristic.uuid}")
                 } else {
@@ -142,7 +135,7 @@ class DeviceDetailActivity : ComponentActivity() {
     @SuppressLint("MissingPermission")
     private fun disconnectDevice() {
         bluetoothGatt?.disconnect()
-        bluetoothGatt?.close() // Toujours fermer la connexion lorsque tu as terminé
+        bluetoothGatt?.close()
         bluetoothGatt = null
         isConnected = false
         showToast("Périphérique déconnecté")
@@ -152,17 +145,14 @@ class DeviceDetailActivity : ComponentActivity() {
     @SuppressLint("MissingPermission")
     @RequiresApi(Build.VERSION_CODES.S)
     private fun writeToLEDCharacteristic(state: LEDStateEnum) {
-        // Vérifier que ledCharacteristic n'est pas null
         val characteristic = ledCharacteristic ?: run {
             Toast.makeText(this, "Caractéristique LED non disponible", Toast.LENGTH_SHORT).show()
             return
         }
 
-        // Attribuer la valeur hexadécimale à la caractéristique
         characteristic.value = state.hex
         Log.d("CHAR", "characteristic.value : ${characteristic.value.joinToString { "0x${it.toUByte().toString(16).toUpperCase()}" }}")
 
-        // Essayer d'écrire la caractéristique
         val success = bluetoothGatt?.writeCharacteristic(characteristic) ?: false
 
         if (success) {
@@ -172,6 +162,19 @@ class DeviceDetailActivity : ComponentActivity() {
         }
     }
 
+    // Modification de la fonction clicbouton pour mettre à jour les états
+    private fun clicbouton(numeroDeBouton: Int) {
+
+        // Récupérer l'appui sur un bouton
+        // Regarder quel bouton vient d'être actionné et incrémenter
+        when (numeroDeBouton) {
+            1 -> nbclicbouton1++  // Incrémenter le compteur pour le bouton 1
+            2 -> nbclicbouton2++  // Incrémenter le compteur pour le bouton 2
+        }
+
+        // Calculer le nombre total de clics
+        nbclictotal = nbclicbouton1 + nbclicbouton2
+    }
 
     private fun showToast(message: String) {
         Toast.makeText(this, message, Toast.LENGTH_SHORT).show()
@@ -185,8 +188,11 @@ fun DeviceDetailScreen(
     isConnected: Boolean,
     onConnect: () -> Unit,
     onDisconnect: () -> Unit,
-    ledStates: MutableList<Boolean>, // MutableList pour mettre à jour l'état des LEDs
-    writeToLEDCharacteristic: (LEDStateEnum) -> Unit
+    ledStates: MutableList<Boolean>,
+    writeToLEDCharacteristic: (LEDStateEnum) -> Unit,
+    nbclicbouton1: Int,  // Utilisation des variables d'état
+    nbclicbouton2: Int,
+    nbclictotal: Int,
 ) {
     Column(modifier = Modifier.fillMaxSize()) {
         // Bandeau supérieur avec le nom et l'adresse du périphérique
@@ -247,7 +253,26 @@ fun DeviceDetailScreen(
 
         Spacer(modifier = Modifier.height(24.dp))
 
-        // Image de la LED
+        // Affichage du nombre de clics
+        Text(
+            text = "Clics bouton 1: $nbclicbouton1",
+            fontSize = 16.sp,
+            modifier = Modifier.padding(8.dp)
+        )
+        Text(
+            text = "Clics bouton 2: $nbclicbouton2",
+            fontSize = 16.sp,
+            modifier = Modifier.padding(8.dp)
+        )
+        Text(
+            text = "Clics totaux: $nbclictotal",
+            fontSize = 16.sp,
+            modifier = Modifier.padding(8.dp)
+        )
+
+        Spacer(modifier = Modifier.height(24.dp))
+
+        // Images de la LED
         Row(
             horizontalArrangement = Arrangement.SpaceEvenly,
             modifier = Modifier.fillMaxWidth()
@@ -260,10 +285,7 @@ fun DeviceDetailScreen(
                         .size(120.dp)
                         .padding(bottom = 24.dp)
                         .clickable {
-                            // Inverser l'état de la LED sur le clic
                             ledStates[i - 1] = !ledStates[i - 1]
-
-                            // Appeler la fonction writeToLEDCharacteristic en fonction du numéro de la LED
                             val state = when (i) {
                                 1 -> LEDStateEnum.LED_1
                                 2 -> LEDStateEnum.LED_2
