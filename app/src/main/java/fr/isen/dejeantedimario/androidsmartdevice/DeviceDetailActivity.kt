@@ -1,15 +1,19 @@
 package fr.isen.dejeantedimario.androidsmartdevice
 
+import android.Manifest
 import android.annotation.SuppressLint
-import android.bluetooth.BluetoothDevice
-import android.bluetooth.BluetoothGatt
-import android.bluetooth.BluetoothGattCallback
-import android.bluetooth.BluetoothManager
+import android.bluetooth.*
+import android.bluetooth.BluetoothProfile.STATE_CONNECTED
+import android.bluetooth.BluetoothProfile.STATE_DISCONNECTED
 import android.content.Context
+import android.content.pm.PackageManager
+import android.os.Build
 import android.os.Bundle
+import android.util.Log
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.annotation.RequiresApi
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -24,12 +28,17 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.app.ActivityCompat
 
 class DeviceDetailActivity : ComponentActivity() {
     private var bluetoothGatt: BluetoothGatt? = null
+    private var ledCharacteristic: BluetoothGattCharacteristic? = null
     private var isConnected by mutableStateOf(false)
-    private var isLedOn by mutableStateOf(false) // État pour la LED
+    private var ledStates = mutableStateListOf(false, false, false) // États pour les 3 LEDs
 
+    private var servicesDiscovered by mutableStateOf(false)
+
+    @RequiresApi(Build.VERSION_CODES.S)
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
@@ -38,7 +47,7 @@ class DeviceDetailActivity : ComponentActivity() {
         val deviceAddress = intent.getStringExtra("DEVICE_ADDRESS") ?: "Adresse non disponible"
 
         // BluetoothManager pour établir la connexion
-        val bluetoothManager = getSystemService(Context.BLUETOOTH_SERVICE) as BluetoothManager
+        val bluetoothManager = getSystemService(BLUETOOTH_SERVICE) as BluetoothManager
         val bluetoothAdapter = bluetoothManager.adapter
         val device = bluetoothAdapter.getRemoteDevice(deviceAddress)
 
@@ -49,36 +58,85 @@ class DeviceDetailActivity : ComponentActivity() {
                 isConnected = isConnected,
                 onConnect = { connectToDevice(device) },
                 onDisconnect = { disconnectDevice() },
-                isLedOn = isLedOn, // Passer l'état de la LED
-                onToggleLed = { toggleLed() } // Passer la fonction pour changer l'état de la LED
+                ledStates = ledStates,
+                writeToLEDCharacteristic = { state -> writeToLEDCharacteristic(state) } // Passer la fonction ici
             )
         }
     }
 
-    @SuppressLint("MissingPermission") // Les permissions ont déjà été demandées
+    @SuppressLint("MissingPermission")
     private fun connectToDevice(device: BluetoothDevice) {
-        bluetoothGatt = device.connectGatt(
-            this,
-            false,
-            object : BluetoothGattCallback() {
-                override fun onConnectionStateChange(
-                    gatt: BluetoothGatt?,
-                    status: Int,
-                    newState: Int
-                ) {
-                    super.onConnectionStateChange(gatt, status, newState)
-                    isConnected = newState == BluetoothGatt.STATE_CONNECTED
-                    runOnUiThread {
-                        if (isConnected) {
-                            showToast("Connecté à ${device.name ?: "Périphérique inconnu"}")
-                        } else {
-                            showToast("Déconnecté de ${device.name ?: "Périphérique inconnu"}")
+        bluetoothGatt = device.connectGatt(this, false, object : BluetoothGattCallback() {
+            override fun onConnectionStateChange(gatt: BluetoothGatt, status: Int, newState: Int) {
+                if (newState == STATE_CONNECTED) {
+                    Log.d("BLEGATT", "Connected to GATT server. Discovering services...")
+                    gatt.discoverServices()
+                    runOnUiThread { isConnected = true }
+                } else if (newState == STATE_DISCONNECTED) {
+                    Log.d("BLEGATT", "Disconnected from GATT server.")
+                    runOnUiThread { isConnected = false }
+                }
+            }
+
+            override fun onServicesDiscovered(gatt: BluetoothGatt, status: Int) {
+                if (status == BluetoothGatt.GATT_SUCCESS) {
+                    // Rechercher une caractéristique disponible
+                    ledCharacteristic = gatt.services.flatMap { it.characteristics }
+                        .firstOrNull() // Prend la première caractéristique disponible
+                    Log.d("BLE", "Services discovered: ${gatt.services.map { it.uuid }}")
+
+                    for (service in gatt.services) {
+                        Log.d("LedActivity", "Service UUID : ${service.uuid}")
+                        for (characteristic in service.characteristics) {
+                            Log.d("LedActivity", "Caractéristique UUID : ${characteristic.uuid}")
+                            Log.d(
+                                "LedActivity",
+                                "Propriétés : ${characteristic.properties}"
+                            )
+                            // Vérifier si la caractéristique est écrivable
+                            val writeType = characteristic.properties and
+                                    (BluetoothGattCharacteristic.PROPERTY_WRITE or BluetoothGattCharacteristic.PROPERTY_WRITE_NO_RESPONSE)
+                            if (writeType > 0) {
+                                ledCharacteristic = characteristic
+                                runOnUiThread {
+                                    servicesDiscovered = true
+                                }
+                                Log.d("LedActivity", "Caractéristique écrivable trouvée : ${characteristic.uuid}")
+                                runOnUiThread {
+                                    Toast.makeText(this@DeviceDetailActivity, "Caractéristique pour les LEDs trouvée", Toast.LENGTH_SHORT).show()
+                                }
+                                break
+                            }
+                        }
+                        if (servicesDiscovered) {
+                            break
                         }
                     }
+
+                    if (!servicesDiscovered) {
+                        Log.d("LedActivity", "Aucune caractéristique écrivable trouvée")
+                        runOnUiThread {
+                            Toast.makeText(this@DeviceDetailActivity, "Aucune caractéristique écrivable trouvée", Toast.LENGTH_SHORT).show()
+                        }
+                    }
+
+                } else {
+                    Log.e("BLE", "Service discovery failed with status $status")
                 }
-            },
-            BluetoothDevice.TRANSPORT_LE  // Le transport Low Energy
-        )
+            }
+
+            override fun onCharacteristicWrite(
+                gatt: BluetoothGatt,
+                characteristic: BluetoothGattCharacteristic,
+                status: Int
+            ) {
+                if (status == BluetoothGatt.GATT_SUCCESS) {
+                    Log.d("BLELED", "Characteristic written successfully: ${characteristic.uuid}")
+                } else {
+                    Log.e("BLELED", "Failed to write characteristic: ${characteristic.uuid}")
+                }
+            }
+        })
     }
 
     @SuppressLint("MissingPermission")
@@ -88,18 +146,38 @@ class DeviceDetailActivity : ComponentActivity() {
         bluetoothGatt = null
         isConnected = false
         showToast("Périphérique déconnecté")
+        finish()
     }
 
-    private fun toggleLed() {
-        isLedOn = !isLedOn // Inverser l'état de la LED
+    @SuppressLint("MissingPermission")
+    @RequiresApi(Build.VERSION_CODES.S)
+    private fun writeToLEDCharacteristic(state: LEDStateEnum) {
+        // Vérifier que ledCharacteristic n'est pas null
+        val characteristic = ledCharacteristic ?: run {
+            Toast.makeText(this, "Caractéristique LED non disponible", Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        // Attribuer la valeur hexadécimale à la caractéristique
+        characteristic.value = state.hex
+        Log.d("CHAR", "characteristic.value : ${characteristic.value.joinToString { "0x${it.toUByte().toString(16).toUpperCase()}" }}")
+
+        // Essayer d'écrire la caractéristique
+        val success = bluetoothGatt?.writeCharacteristic(characteristic) ?: false
+
+        if (success) {
+            Log.d("BLE", "Écriture de la caractéristique réussie : ${state.name}")
+        } else {
+            Log.e("BLE", "Écriture de la caractéristique échouée")
+        }
     }
+
 
     private fun showToast(message: String) {
         Toast.makeText(this, message, Toast.LENGTH_SHORT).show()
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun DeviceDetailScreen(
     deviceName: String,
@@ -107,8 +185,8 @@ fun DeviceDetailScreen(
     isConnected: Boolean,
     onConnect: () -> Unit,
     onDisconnect: () -> Unit,
-    isLedOn: Boolean, // Ajouter l'état de la LED
-    onToggleLed: () -> Unit // Ajouter la fonction pour changer l'état de la LED
+    ledStates: MutableList<Boolean>, // MutableList pour mettre à jour l'état des LEDs
+    writeToLEDCharacteristic: (LEDStateEnum) -> Unit
 ) {
     Column(modifier = Modifier.fillMaxSize()) {
         // Bandeau supérieur avec le nom et l'adresse du périphérique
@@ -174,38 +252,28 @@ fun DeviceDetailScreen(
             horizontalArrangement = Arrangement.SpaceEvenly,
             modifier = Modifier.fillMaxWidth()
         ) {
-            Image(
-                painter = painterResource(id = if (isLedOn) R.drawable.ledon else R.drawable.ledoff),
-                contentDescription = if (isLedOn) "ledon1" else "ledoff1",
-                modifier = Modifier
-                    .size(120.dp)
-                    .padding(bottom = 24.dp)
-                    .clickable {
-                        onToggleLed() // Appeler la fonction pour changer l'état de la LED
-                    }
-            )
+            for (i in 1..3) {
+                Image(
+                    painter = painterResource(id = if (ledStates[i-1]) R.drawable.ledon else R.drawable.ledoff),
+                    contentDescription = "LED $i",
+                    modifier = Modifier
+                        .size(120.dp)
+                        .padding(bottom = 24.dp)
+                        .clickable {
+                            // Inverser l'état de la LED sur le clic
+                            ledStates[i - 1] = !ledStates[i - 1]
 
-            Image(
-                painter = painterResource(id = if (isLedOn) R.drawable.ledon else R.drawable.ledoff),
-                contentDescription = if (isLedOn) "ledon2" else "ledoff2",
-                modifier = Modifier
-                    .size(120.dp)
-                    .padding(bottom = 24.dp)
-                    .clickable {
-                        onToggleLed() // Appeler la fonction pour changer l'état de la LED
-                    }
-            )
-
-            Image(
-                painter = painterResource(id = if (isLedOn) R.drawable.ledon else R.drawable.ledoff),
-                contentDescription = if (isLedOn) "ledon3" else "ledoff3",
-                modifier = Modifier
-                    .size(120.dp)
-                    .padding(bottom = 24.dp)
-                    .clickable {
-                        onToggleLed() // Appeler la fonction pour changer l'état de la LED
-                    }
-            )
+                            // Appeler la fonction writeToLEDCharacteristic en fonction du numéro de la LED
+                            val state = when (i) {
+                                1 -> LEDStateEnum.LED_1
+                                2 -> LEDStateEnum.LED_2
+                                3 -> LEDStateEnum.LED_3
+                                else -> LEDStateEnum.NONE
+                            }
+                            writeToLEDCharacteristic(state)
+                        }
+                )
+            }
         }
     }
 }

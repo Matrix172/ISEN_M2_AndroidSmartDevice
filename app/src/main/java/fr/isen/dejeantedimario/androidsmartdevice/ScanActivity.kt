@@ -193,6 +193,7 @@
             }
         }
 
+        @SuppressLint("MissingPermission")
         @RequiresApi(Build.VERSION_CODES.S)
         override fun onCreate(savedInstanceState: Bundle?) {
             super.onCreate(savedInstanceState)
@@ -206,6 +207,7 @@
                         onDeviceClick = { device ->
                             val intent = Intent(this, DeviceDetailActivity::class.java).apply {
                                 putExtra("DEVICE_ADDRESS", device.address)
+                                putExtra("DEVICE_NAME", device.name)
                             }
                             startActivity(intent)
                         }
@@ -266,6 +268,8 @@
                             }
                     )
                 }
+
+                Spacer(modifier = Modifier.height(24.dp))
 
                 // Affichage du statut de scan
                 if (isScanning) {
